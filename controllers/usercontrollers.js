@@ -1,260 +1,163 @@
-// database connection
-const dbconnection = require("../Database/databaseconfig");
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
-const sendEmail = require("../utils/emailSender");
+const { createClient } = require("@supabase/supabase-js");
 
-// ------------------- Register -------------------
-async function register(req, res) {
-  let { username, firstname, lastname, email, user_password } = req.body;
-
-  // Combined empty field checks
-  const errors = [];
-  if (!username) errors.push("Username is required");
-  if (!firstname) errors.push("Firstname is required");
-  if (!lastname) errors.push("Lastname is required");
-  if (!email) errors.push("Email is required");
-  if (!user_password) errors.push("Password is required");
-
-  if (errors.length) {
-    return res.status(400).json({ message: "Validation error", errors });
-  }
-
-  // Stronger password validation
-  const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
-  if (!passwordRegex.test(user_password)) {
-    return res.status(400).json({
-      message:
-        "Password must be at least 8 characters, include one uppercase letter, one number, and one special character",
-    });
-  }
-
-  try {
-    // Check username uniqueness - PostgreSQL syntax
-    const usernameValidation = await dbconnection.query(
-      "SELECT * FROM users WHERE username = $1",
-      [username]
-    );
-
-    // Check email uniqueness - PostgreSQL syntax
-    const emailValidation = await dbconnection.query(
-      "SELECT * FROM users WHERE email = $1",
-      [email]
-    );
-
-    if (usernameValidation.rows.length > 0) {
-      return res
-        .status(400)
-        .json({ status: "Failed", message: "Username Already Exists" });
-    }
-
-    if (emailValidation.rows.length > 0) {
-      return res
-        .status(400)
-        .json({ status: "Failed", message: "Email Already in Use" });
-    }
-
-    // Hash the password
-    const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(user_password, saltRounds);
-
-    // Insert new user into database - PostgreSQL syntax
-    await dbconnection.query(
-      "INSERT INTO users (username, firstname, lastname, email, user_password) VALUES ($1, $2, $3, $4, $5)",
-      [username, firstname, lastname, email, hashedPassword]
-    );
-
-    res.status(201).json({ message: "User registered successfully" });
-  } catch (error) {
-    console.error("Error registering user:", error);
-    res.status(500).json({ message: "Internal server error" });
-  }
+// Only load .env in development
+if (process.env.NODE_ENV !== "production") {
+  require("dotenv").config();
 }
 
-// ------------------- Login -------------------
-async function login(req, res) {
-  const { email, user_password, rememberMe } = req.body;
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
-  if (!email) {
-    return res.status(400).json({ message: "Email is empty" });
-  }
-  if (!user_password) {
-    return res.status(400).json({ message: "password is empty" });
-  }
-
-  try {
-    // PostgreSQL syntax
-    const result = await dbconnection.query(
-      "SELECT username, userid, user_password FROM users WHERE email = $1",
-      [email]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(400).json({ message: "Invalid email or password" });
-    }
-
-    const user = result.rows[0];
-    const passwordMatch = await bcrypt.compare(
-      user_password,
-      user.user_password
-    );
-
-    if (!passwordMatch) {
-      return res.status(400).json({ message: "Invalid email or password" });
-    }
-
-    const username = user.username;
-    const userid = user.userid;
-
-    const expiresIn = rememberMe ? "30d" : "1d";
-
-    const token = jwt.sign({ username, userid }, process.env.JWT_SECRET, {
-      expiresIn: expiresIn,
-    });
-
-    return res.status(200).json({
-      msg: "user login successful",
-      token,
-      username,
-      userid,
-    });
-  } catch (error) {
-    console.error("Error logging in:", error);
-    res.status(500).json({ message: "Internal server error" });
-  }
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error("Missing Supabase environment variables");
 }
 
-// ------------------- Checkuser -------------------
-async function checkuser(req, res) {
-  const username = req.user.username;
-  const userid = req.user.userid;
-  res.json({ message: "user is logged in", username, userid });
-}
+const supabase = createClient(supabaseUrl, supabaseKey);
 
-// ------------------- Forgot Password -------------------
-const forgotPassword = async (req, res) => {
-  try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ message: "Email is required" });
+// Query wrapper to handle PostgreSQL queries
+const query = async (text, params = []) => {
+  const cleanText = text.trim();
 
-    // Check if user exists - PostgreSQL syntax
-    const result = await dbconnection.query(
-      "SELECT * FROM users WHERE email = $1",
-      [email]
-    );
-
-    if (result.rows.length === 0)
-      return res.status(404).json({ message: "Email not found" });
-
-    // Generate OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    // Hash OTP before saving
-    const hashedOtp = await bcrypt.hash(otp, 10);
-
-    // Save hashed OTP + expiration - PostgreSQL syntax
-    await dbconnection.query(
-      "UPDATE users SET reset_otp = $1, otp_expiration = NOW() + INTERVAL '5 minutes' WHERE email = $2",
-      [hashedOtp, email]
-    );
-
-    // Send OTP email
-    await sendEmail(
-      email,
-      "Your OTP Code - Do not share",
-      `
-      <p>Hello,</p>
-      <p>Your OTP code for password reset is:</p>
-      <h2 style="color:blue;">${otp}</h2>
-      <p><b>This OTP will expire in 5 minutes.</b></p>
-      <p style="color:red;">⚠️ Do not share this code with anyone for security reasons.</p>
-      <p>If you did not request this, please ignore this email.</p>
-      <p>Best regards,<br/>Support Team</p>
-      `
-    );
-
-    res.json({ message: "OTP sent to your email." });
-  } catch (err) {
-    console.error("Forgot password error:", err);
-    res.status(500).json({ message: "Server error" });
-  }
-};
-
-// ------------------- Reset Password -------------------
-const resetPassword = async (req, res) => {
-  const { email, otp, newPassword } = req.body;
-
-  if (!email || !otp || !newPassword) {
-    return res.status(400).json({ message: "All fields are required" });
+  // Handle connection test
+  if (cleanText.match(/SELECT NOW\(\)/i)) {
+    return { rows: [{ now: new Date() }] };
   }
 
-  const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
+  // Handle CREATE TABLE (skip - tables created in Supabase)
+  if (cleanText.match(/CREATE TABLE IF NOT EXISTS/i)) {
+    console.log("⚠️ Table creation skipped - tables exist in Supabase");
+    return { rows: [] };
+  }
 
-  if (!passwordRegex.test(newPassword)) {
-    return res.status(400).json({
-      message:
-        "Password must be at least 8 characters, include one uppercase letter, one number, and one special character",
+  // Handle SELECT queries
+  const selectMatch = cleanText.match(
+    /SELECT (.+?) FROM (\w+)(?: WHERE (\w+) = \$1)?/i
+  );
+  if (selectMatch) {
+    const [, columns, table, whereColumn] = selectMatch;
+    let queryBuilder = supabase
+      .from(table)
+      .select(columns === "*" ? "*" : columns);
+
+    if (whereColumn && params[0] !== undefined) {
+      queryBuilder = queryBuilder.eq(whereColumn, params[0]);
+    }
+
+    const { data, error } = await queryBuilder;
+    if (error) throw error;
+    return { rows: data || [] };
+  }
+
+  // Handle INSERT queries (without RETURNING)
+  const insertMatch = cleanText.match(
+    /INSERT INTO (\w+)\s*\((.*?)\)\s*VALUES\s*\((\$\d+(?:,\s*\$\d+)*)\)/i
+  );
+  if (insertMatch) {
+    const [, table, columns] = insertMatch;
+    const columnNames = columns.split(",").map((c) => c.trim());
+    const insertData = {};
+
+    columnNames.forEach((col, i) => {
+      if (params[i] !== undefined) {
+        insertData[col] = params[i];
+      }
     });
+
+    const { data, error } = await supabase
+      .from(table)
+      .insert(insertData)
+      .select();
+
+    if (error) {
+      console.error("Insert error:", error);
+      throw error;
+    }
+    return { rows: data || [] };
   }
 
-  try {
-    // Get user by email ONLY - PostgreSQL syntax
-    const result = await dbconnection.query(
-      "SELECT reset_otp, otp_expiration FROM users WHERE email = $1",
-      [email]
-    );
+  // Handle UPDATE queries with SET and WHERE
+  const updateMatch = cleanText.match(
+    /UPDATE (\w+) SET (.+?) WHERE (\w+) = \$(\d+)/i
+  );
+  if (updateMatch) {
+    const [, table, setClause, whereColumn, whereParamNum] = updateMatch;
+    const updates = {};
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Email not found" });
+    // Parse SET clause (e.g., "reset_otp = $1, otp_expiration = NOW() + INTERVAL '5 minutes'")
+    const setParts = setClause.split(",");
+    let paramIndex = 0;
+
+    for (let part of setParts) {
+      const [colName, value] = part.split("=").map((s) => s.trim());
+
+      if (value.includes("$")) {
+        const paramNum = parseInt(value.match(/\$(\d+)/)[1]);
+        updates[colName] = params[paramNum - 1];
+      } else if (value === "NULL") {
+        updates[colName] = null;
+      } else if (value.includes("NOW()")) {
+        // Handle NOW() + INTERVAL
+        if (value.includes("INTERVAL")) {
+          const minutes = value.match(/INTERVAL '(\d+) minutes?'/i);
+          if (minutes) {
+            const futureDate = new Date();
+            futureDate.setMinutes(
+              futureDate.getMinutes() + parseInt(minutes[1])
+            );
+            updates[colName] = futureDate.toISOString();
+          }
+        } else {
+          updates[colName] = new Date().toISOString();
+        }
+      }
     }
 
-    const user = result.rows[0];
+    const { data, error } = await supabase
+      .from(table)
+      .update(updates)
+      .eq(whereColumn, params[parseInt(whereParamNum) - 1])
+      .select();
 
-    // Check OTP expiration
-    if (!user.otp_expiration || new Date(user.otp_expiration) < new Date()) {
-      return res.status(400).json({ message: "OTP has expired" });
+    if (error) {
+      console.error("Update error:", error);
+      throw error;
     }
-
-    // Compare OTP using bcrypt
-    const isOtpValid = await bcrypt.compare(otp, user.reset_otp);
-    if (!isOtpValid) {
-      return res.status(400).json({ message: "Invalid OTP" });
-    }
-
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-    // Update password & clear OTP fields - PostgreSQL syntax
-    await dbconnection.query(
-      "UPDATE users SET user_password = $1, reset_otp = NULL, otp_expiration = NULL WHERE email = $2",
-      [hashedPassword, email]
-    );
-
-    res.json({ message: "Password reset successful! You can now login." });
-  } catch (err) {
-    console.error("Reset password error:", err);
-    res.status(500).json({ message: "Server error" });
+    return { rows: data || [] };
   }
+
+  // Handle DELETE queries
+  const deleteMatch = cleanText.match(/DELETE FROM (\w+) WHERE (\w+) = \$1/i);
+  if (deleteMatch) {
+    const [, table, column] = deleteMatch;
+    const { error } = await supabase.from(table).delete().eq(column, params[0]);
+
+    if (error) throw error;
+    return { rows: [] };
+  }
+
+  console.error("❌ Unsupported query:", cleanText);
+  throw new Error(
+    `Query pattern not supported: ${cleanText.substring(0, 100)}...`
+  );
 };
 
 module.exports = {
-  register,
-  login,
-  checkuser,
-  resetPassword,
-  forgotPassword,
+  query,
+  supabase,
 };
 
+//---------------------------------------------------------------
 // // database connection
 // const dbconnection = require("../Database/databaseconfig");
 // const bcrypt = require("bcrypt");
 // const jwt = require("jsonwebtoken");
-// const sendEmail =require("../utils/emailSender")
+// const sendEmail = require("../utils/emailSender");
+
 // // ------------------- Register -------------------
 // async function register(req, res) {
 //   let { username, firstname, lastname, email, user_password } = req.body;
 
-//   //  Combined empty field checks
+//   // Combined empty field checks
 //   const errors = [];
 //   if (!username) errors.push("Username is required");
 //   if (!firstname) errors.push("Firstname is required");
@@ -266,7 +169,7 @@ module.exports = {
 //     return res.status(400).json({ message: "Validation error", errors });
 //   }
 
-//   //  Stronger password validation
+//   // Stronger password validation
 //   const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
 //   if (!passwordRegex.test(user_password)) {
 //     return res.status(400).json({
@@ -276,25 +179,25 @@ module.exports = {
 //   }
 
 //   try {
-//     // Check username uniqueness
-//     const [usernameValidation] = await dbconnection.query(
-//       "SELECT * FROM users WHERE username= ?",
+//     // Check username uniqueness - PostgreSQL syntax
+//     const usernameValidation = await dbconnection.query(
+//       "SELECT * FROM users WHERE username = $1",
 //       [username]
 //     );
 
-//     // Check email uniqueness
-//     const [emailValidation] = await dbconnection.query(
-//       "SELECT * FROM users WHERE email=?",
+//     // Check email uniqueness - PostgreSQL syntax
+//     const emailValidation = await dbconnection.query(
+//       "SELECT * FROM users WHERE email = $1",
 //       [email]
 //     );
 
-//     if (usernameValidation.length > 0) {
+//     if (usernameValidation.rows.length > 0) {
 //       return res
 //         .status(400)
 //         .json({ status: "Failed", message: "Username Already Exists" });
 //     }
 
-//     if (emailValidation.length > 0) {
+//     if (emailValidation.rows.length > 0) {
 //       return res
 //         .status(400)
 //         .json({ status: "Failed", message: "Email Already in Use" });
@@ -304,9 +207,9 @@ module.exports = {
 //     const saltRounds = 10;
 //     const hashedPassword = await bcrypt.hash(user_password, saltRounds);
 
-//     // Insert new user into database
+//     // Insert new user into database - PostgreSQL syntax
 //     await dbconnection.query(
-//       "INSERT INTO users (username, firstname, lastname, email, user_password) VALUES (?, ?, ?, ?, ?)",
+//       "INSERT INTO users (username, firstname, lastname, email, user_password) VALUES ($1, $2, $3, $4, $5)",
 //       [username, firstname, lastname, email, hashedPassword]
 //     );
 
@@ -316,6 +219,7 @@ module.exports = {
 //     res.status(500).json({ message: "Internal server error" });
 //   }
 // }
+
 // // ------------------- Login -------------------
 // async function login(req, res) {
 //   const { email, user_password, rememberMe } = req.body;
@@ -328,15 +232,17 @@ module.exports = {
 //   }
 
 //   try {
-//     const [rows] = await dbconnection.query(
-//       "SELECT username,userid,user_password FROM users WHERE email = ?",
+//     // PostgreSQL syntax
+//     const result = await dbconnection.query(
+//       "SELECT username, userid, user_password FROM users WHERE email = $1",
 //       [email]
 //     );
 
-//     if (rows.length === 0) {
+//     if (result.rows.length === 0) {
 //       return res.status(400).json({ message: "Invalid email or password" });
 //     }
-//     const user = rows[0];
+
+//     const user = result.rows[0];
 //     const passwordMatch = await bcrypt.compare(
 //       user_password,
 //       user.user_password
@@ -346,8 +252,8 @@ module.exports = {
 //       return res.status(400).json({ message: "Invalid email or password" });
 //     }
 
-//     const username = rows[0].username;
-//     const userid = rows[0].userid;
+//     const username = user.username;
+//     const userid = user.userid;
 
 //     const expiresIn = rememberMe ? "30d" : "1d";
 
@@ -366,6 +272,7 @@ module.exports = {
 //     res.status(500).json({ message: "Internal server error" });
 //   }
 // }
+
 // // ------------------- Checkuser -------------------
 // async function checkuser(req, res) {
 //   const username = req.user.username;
@@ -374,18 +281,18 @@ module.exports = {
 // }
 
 // // ------------------- Forgot Password -------------------
-
 // const forgotPassword = async (req, res) => {
 //   try {
 //     const { email } = req.body;
 //     if (!email) return res.status(400).json({ message: "Email is required" });
 
-//     // Check if user exists
-//     const [rows] = await dbconnection.query(
-//       "SELECT * FROM users WHERE email = ?",
+//     // Check if user exists - PostgreSQL syntax
+//     const result = await dbconnection.query(
+//       "SELECT * FROM users WHERE email = $1",
 //       [email]
 //     );
-//     if (rows.length === 0)
+
+//     if (result.rows.length === 0)
 //       return res.status(404).json({ message: "Email not found" });
 
 //     // Generate OTP
@@ -394,9 +301,9 @@ module.exports = {
 //     // Hash OTP before saving
 //     const hashedOtp = await bcrypt.hash(otp, 10);
 
-//     // Save hashed OTP + expiration
+//     // Save hashed OTP + expiration - PostgreSQL syntax
 //     await dbconnection.query(
-//       "UPDATE users SET reset_otp = ?, otp_expiration = DATE_ADD(NOW(), INTERVAL 5 MINUTE) WHERE email = ?",
+//       "UPDATE users SET reset_otp = $1, otp_expiration = NOW() + INTERVAL '5 minutes' WHERE email = $2",
 //       [hashedOtp, email]
 //     );
 
@@ -423,65 +330,307 @@ module.exports = {
 // };
 
 // // ------------------- Reset Password -------------------
-//  const resetPassword = async (req, res) => {
-//    const { email, otp, newPassword } = req.body;
+// const resetPassword = async (req, res) => {
+//   const { email, otp, newPassword } = req.body;
 
-//    if (!email || !otp || !newPassword) {
-//      return res.status(400).json({ message: "All fields are required" });
-//    }
+//   if (!email || !otp || !newPassword) {
+//     return res.status(400).json({ message: "All fields are required" });
+//   }
 
-//    const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
+//   const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
 
-//    if (!passwordRegex.test(newPassword)) {
-//      return res.status(400).json({
-//        message:
-//          "Password must be at least 8 characters, include one uppercase letter, one number, and one special character",
-//      });
-//    }
+//   if (!passwordRegex.test(newPassword)) {
+//     return res.status(400).json({
+//       message:
+//         "Password must be at least 8 characters, include one uppercase letter, one number, and one special character",
+//     });
+//   }
 
-//    try {
-//      //  Get user by email ONLY
-//      const [rows] = await dbconnection.query(
-//        "SELECT reset_otp, otp_expiration FROM users WHERE email = ?",
-//        [email]
-//      );
+//   try {
+//     // Get user by email ONLY - PostgreSQL syntax
+//     const result = await dbconnection.query(
+//       "SELECT reset_otp, otp_expiration FROM users WHERE email = $1",
+//       [email]
+//     );
 
-//      if (rows.length === 0) {
-//        return res.status(404).json({ message: "Email not found" });
-//      }
+//     if (result.rows.length === 0) {
+//       return res.status(404).json({ message: "Email not found" });
+//     }
 
-//      const user = rows[0];
+//     const user = result.rows[0];
 
-//      //  Check OTP expiration
-//      if (!user.otp_expiration || new Date(user.otp_expiration) < new Date()) {
-//        return res.status(400).json({ message: "OTP has expired" });
-//      }
+//     // Check OTP expiration
+//     if (!user.otp_expiration || new Date(user.otp_expiration) < new Date()) {
+//       return res.status(400).json({ message: "OTP has expired" });
+//     }
 
-//      //  Compare OTP using bcrypt
-//      const isOtpValid = await bcrypt.compare(otp, user.reset_otp);
-//      if (!isOtpValid) {
-//        return res.status(400).json({ message: "Invalid OTP" });
-//      }
+//     // Compare OTP using bcrypt
+//     const isOtpValid = await bcrypt.compare(otp, user.reset_otp);
+//     if (!isOtpValid) {
+//       return res.status(400).json({ message: "Invalid OTP" });
+//     }
 
-//      //  Hash new password
-//      const hashedPassword = await bcrypt.hash(newPassword, 10);
+//     // Hash new password
+//     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-//      //  Update password & clear OTP fields
-//      await dbconnection.query(
-//        "UPDATE users SET user_password = ?, reset_otp = NULL, otp_expiration = NULL WHERE email = ?",
-//        [hashedPassword, email]
-//      );
+//     // Update password & clear OTP fields - PostgreSQL syntax
+//     await dbconnection.query(
+//       "UPDATE users SET user_password = $1, reset_otp = NULL, otp_expiration = NULL WHERE email = $2",
+//       [hashedPassword, email]
+//     );
 
-//      res.json({ message: "Password reset successful! You can now login." });
-//    } catch (err) {
-//      console.error("Reset password error:", err);
-//      res.status(500).json({ message: "Server error" });
-//    }
-//  };
+//     res.json({ message: "Password reset successful! You can now login." });
+//   } catch (err) {
+//     console.error("Reset password error:", err);
+//     res.status(500).json({ message: "Server error" });
+//   }
+// };
+
 // module.exports = {
 //   register,
 //   login,
 //   checkuser,
 //   resetPassword,
-//   forgotPassword
+//   forgotPassword,
 // };
+
+// // // database connection
+// // const dbconnection = require("../Database/databaseconfig");
+// // const bcrypt = require("bcrypt");
+// // const jwt = require("jsonwebtoken");
+// // const sendEmail =require("../utils/emailSender")
+// // // ------------------- Register -------------------
+// // async function register(req, res) {
+// //   let { username, firstname, lastname, email, user_password } = req.body;
+
+// //   //  Combined empty field checks
+// //   const errors = [];
+// //   if (!username) errors.push("Username is required");
+// //   if (!firstname) errors.push("Firstname is required");
+// //   if (!lastname) errors.push("Lastname is required");
+// //   if (!email) errors.push("Email is required");
+// //   if (!user_password) errors.push("Password is required");
+
+// //   if (errors.length) {
+// //     return res.status(400).json({ message: "Validation error", errors });
+// //   }
+
+// //   //  Stronger password validation
+// //   const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
+// //   if (!passwordRegex.test(user_password)) {
+// //     return res.status(400).json({
+// //       message:
+// //         "Password must be at least 8 characters, include one uppercase letter, one number, and one special character",
+// //     });
+// //   }
+
+// //   try {
+// //     // Check username uniqueness
+// //     const [usernameValidation] = await dbconnection.query(
+// //       "SELECT * FROM users WHERE username= ?",
+// //       [username]
+// //     );
+
+// //     // Check email uniqueness
+// //     const [emailValidation] = await dbconnection.query(
+// //       "SELECT * FROM users WHERE email=?",
+// //       [email]
+// //     );
+
+// //     if (usernameValidation.length > 0) {
+// //       return res
+// //         .status(400)
+// //         .json({ status: "Failed", message: "Username Already Exists" });
+// //     }
+
+// //     if (emailValidation.length > 0) {
+// //       return res
+// //         .status(400)
+// //         .json({ status: "Failed", message: "Email Already in Use" });
+// //     }
+
+// //     // Hash the password
+// //     const saltRounds = 10;
+// //     const hashedPassword = await bcrypt.hash(user_password, saltRounds);
+
+// //     // Insert new user into database
+// //     await dbconnection.query(
+// //       "INSERT INTO users (username, firstname, lastname, email, user_password) VALUES (?, ?, ?, ?, ?)",
+// //       [username, firstname, lastname, email, hashedPassword]
+// //     );
+
+// //     res.status(201).json({ message: "User registered successfully" });
+// //   } catch (error) {
+// //     console.error("Error registering user:", error);
+// //     res.status(500).json({ message: "Internal server error" });
+// //   }
+// // }
+// // // ------------------- Login -------------------
+// // async function login(req, res) {
+// //   const { email, user_password, rememberMe } = req.body;
+
+// //   if (!email) {
+// //     return res.status(400).json({ message: "Email is empty" });
+// //   }
+// //   if (!user_password) {
+// //     return res.status(400).json({ message: "password is empty" });
+// //   }
+
+// //   try {
+// //     const [rows] = await dbconnection.query(
+// //       "SELECT username,userid,user_password FROM users WHERE email = ?",
+// //       [email]
+// //     );
+
+// //     if (rows.length === 0) {
+// //       return res.status(400).json({ message: "Invalid email or password" });
+// //     }
+// //     const user = rows[0];
+// //     const passwordMatch = await bcrypt.compare(
+// //       user_password,
+// //       user.user_password
+// //     );
+
+// //     if (!passwordMatch) {
+// //       return res.status(400).json({ message: "Invalid email or password" });
+// //     }
+
+// //     const username = rows[0].username;
+// //     const userid = rows[0].userid;
+
+// //     const expiresIn = rememberMe ? "30d" : "1d";
+
+// //     const token = jwt.sign({ username, userid }, process.env.JWT_SECRET, {
+// //       expiresIn: expiresIn,
+// //     });
+
+// //     return res.status(200).json({
+// //       msg: "user login successful",
+// //       token,
+// //       username,
+// //       userid,
+// //     });
+// //   } catch (error) {
+// //     console.error("Error logging in:", error);
+// //     res.status(500).json({ message: "Internal server error" });
+// //   }
+// // }
+// // // ------------------- Checkuser -------------------
+// // async function checkuser(req, res) {
+// //   const username = req.user.username;
+// //   const userid = req.user.userid;
+// //   res.json({ message: "user is logged in", username, userid });
+// // }
+
+// // // ------------------- Forgot Password -------------------
+
+// // const forgotPassword = async (req, res) => {
+// //   try {
+// //     const { email } = req.body;
+// //     if (!email) return res.status(400).json({ message: "Email is required" });
+
+// //     // Check if user exists
+// //     const [rows] = await dbconnection.query(
+// //       "SELECT * FROM users WHERE email = ?",
+// //       [email]
+// //     );
+// //     if (rows.length === 0)
+// //       return res.status(404).json({ message: "Email not found" });
+
+// //     // Generate OTP
+// //     const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+// //     // Hash OTP before saving
+// //     const hashedOtp = await bcrypt.hash(otp, 10);
+
+// //     // Save hashed OTP + expiration
+// //     await dbconnection.query(
+// //       "UPDATE users SET reset_otp = ?, otp_expiration = DATE_ADD(NOW(), INTERVAL 5 MINUTE) WHERE email = ?",
+// //       [hashedOtp, email]
+// //     );
+
+// //     // Send OTP email
+// //     await sendEmail(
+// //       email,
+// //       "Your OTP Code - Do not share",
+// //       `
+// //       <p>Hello,</p>
+// //       <p>Your OTP code for password reset is:</p>
+// //       <h2 style="color:blue;">${otp}</h2>
+// //       <p><b>This OTP will expire in 5 minutes.</b></p>
+// //       <p style="color:red;">⚠️ Do not share this code with anyone for security reasons.</p>
+// //       <p>If you did not request this, please ignore this email.</p>
+// //       <p>Best regards,<br/>Support Team</p>
+// //       `
+// //     );
+
+// //     res.json({ message: "OTP sent to your email." });
+// //   } catch (err) {
+// //     console.error("Forgot password error:", err);
+// //     res.status(500).json({ message: "Server error" });
+// //   }
+// // };
+
+// // // ------------------- Reset Password -------------------
+// //  const resetPassword = async (req, res) => {
+// //    const { email, otp, newPassword } = req.body;
+
+// //    if (!email || !otp || !newPassword) {
+// //      return res.status(400).json({ message: "All fields are required" });
+// //    }
+
+// //    const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
+
+// //    if (!passwordRegex.test(newPassword)) {
+// //      return res.status(400).json({
+// //        message:
+// //          "Password must be at least 8 characters, include one uppercase letter, one number, and one special character",
+// //      });
+// //    }
+
+// //    try {
+// //      //  Get user by email ONLY
+// //      const [rows] = await dbconnection.query(
+// //        "SELECT reset_otp, otp_expiration FROM users WHERE email = ?",
+// //        [email]
+// //      );
+
+// //      if (rows.length === 0) {
+// //        return res.status(404).json({ message: "Email not found" });
+// //      }
+
+// //      const user = rows[0];
+
+// //      //  Check OTP expiration
+// //      if (!user.otp_expiration || new Date(user.otp_expiration) < new Date()) {
+// //        return res.status(400).json({ message: "OTP has expired" });
+// //      }
+
+// //      //  Compare OTP using bcrypt
+// //      const isOtpValid = await bcrypt.compare(otp, user.reset_otp);
+// //      if (!isOtpValid) {
+// //        return res.status(400).json({ message: "Invalid OTP" });
+// //      }
+
+// //      //  Hash new password
+// //      const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+// //      //  Update password & clear OTP fields
+// //      await dbconnection.query(
+// //        "UPDATE users SET user_password = ?, reset_otp = NULL, otp_expiration = NULL WHERE email = ?",
+// //        [hashedPassword, email]
+// //      );
+
+// //      res.json({ message: "Password reset successful! You can now login." });
+// //    } catch (err) {
+// //      console.error("Reset password error:", err);
+// //      res.status(500).json({ message: "Server error" });
+// //    }
+// //  };
+// // module.exports = {
+// //   register,
+// //   login,
+// //   checkuser,
+// //   resetPassword,
+// //   forgotPassword
+// // };
