@@ -1,5 +1,6 @@
-const { createClient } = require("@supabase/supabase-js");
+const { createClient } = require('@supabase/supabase-js');
 
+// Only load .env in development
 if (process.env.NODE_ENV !== "production") {
   require("dotenv").config();
 }
@@ -8,127 +9,63 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  throw new Error("Missing Supabase environment variables");
+  throw new Error('Missing Supabase environment variables');
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Helper to convert MySQL-style queries to Supabase operations
+// Create a query wrapper to maintain compatibility with existing code
 const query = async (text, params = []) => {
-  console.warn(
-    "⚠️ Using legacy query function. Consider migrating to Supabase methods."
-  );
-
-  // Parse simple SELECT queries
-  const selectMatch = text.match(/SELECT \* FROM (\w+) WHERE (\w+) = \?/i);
-  if (selectMatch) {
-    const [, table, column] = selectMatch;
-    const { data, error } = await supabase
-      .from(table)
-      .select("*")
-      .eq(column, params[0]);
-
-    if (error) throw error;
-    return { rows: data || [] };
-  }
-
-  // Parse INSERT queries
-  const insertMatch = text.match(
-    /INSERT INTO (\w+) \((.*?)\) VALUES \((.*?)\)/i
-  );
-  if (insertMatch) {
-    const [, table, columns] = insertMatch;
-    const columnNames = columns.split(",").map((c) => c.trim());
-    const insertData = {};
-    columnNames.forEach((col, i) => {
-      insertData[col] = params[i];
+  try {
+    // Use Supabase's RPC function for raw SQL queries
+    const { data, error } = await supabase.rpc('execute_sql', {
+      query: text,
+      params: params
     });
-
-    const { data, error } = await supabase
-      .from(table)
-      .insert(insertData)
-      .select();
-
-    if (error) throw error;
+    
+    if (error) {
+      console.error('Supabase query error:', error);
+      throw error;
+    }
+    
     return { rows: data || [] };
+  } catch (error) {
+    console.error('Database query error:', error);
+    throw error;
   }
-
-  throw new Error("Query not supported. Please use Supabase native methods.");
 };
 
 module.exports = {
   query,
-  supabase,
+  supabase
 };
 
-// const { createClient } = require('@supabase/supabase-js');
+// const mysql2 = require("mysql2");
 
-// // Only load .env in development
+// // Only load .env in development (not in production)
 // if (process.env.NODE_ENV !== "production") {
 //   require("dotenv").config();
 // }
 
-// const supabaseUrl = process.env.SUPABASE_URL;
-// const supabaseKey = process.env.SUPABASE_ANON_KEY;
+// const dbconnection = mysql2.createPool({
+//   host: process.env.DB_HOST,
+//   user: process.env.DB_USER,
+//   password: process.env.DB_PASSWORD,
+//   database: process.env.DB_NAME,
+//   port: process.env.DB_PORT || 3306,
+// });
 
-// if (!supabaseUrl || !supabaseKey) {
-//   throw new Error('Missing Supabase environment variables');
-// }
+// module.exports = dbconnection.promise();
 
-// const supabase = createClient(supabaseUrl, supabaseKey);
+// const mysql2 = require("mysql2");
+// const dotenv = require("dotenv");
+// dotenv.config();
 
-// // Create a query wrapper to maintain compatibility with existing code
-// const query = async (text, params = []) => {
-//   try {
-//     // Use Supabase's RPC function for raw SQL queries
-//     const { data, error } = await supabase.rpc('execute_sql', {
-//       query: text,
-//       params: params
-//     });
+// const dbconnection = mysql2.createPool({
+//   host: process.env.DB_HOST,
+//   user: process.env.DB_USER,
+//   password: process.env.DB_PASSWORD,
+//   database: process.env.DB_NAME,
+// });
 
-//     if (error) {
-//       console.error('Supabase query error:', error);
-//       throw error;
-//     }
-
-//     return { rows: data || [] };
-//   } catch (error) {
-//     console.error('Database query error:', error);
-//     throw error;
-//   }
-// };
-
-// module.exports = {
-//   query,
-//   supabase
-// };
-
-// // const mysql2 = require("mysql2");
-
-// // // Only load .env in development (not in production)
-// // if (process.env.NODE_ENV !== "production") {
-// //   require("dotenv").config();
-// // }
-
-// // const dbconnection = mysql2.createPool({
-// //   host: process.env.DB_HOST,
-// //   user: process.env.DB_USER,
-// //   password: process.env.DB_PASSWORD,
-// //   database: process.env.DB_NAME,
-// //   port: process.env.DB_PORT || 3306,
-// // });
-
-// // module.exports = dbconnection.promise();
-
-// // const mysql2 = require("mysql2");
-// // const dotenv = require("dotenv");
-// // dotenv.config();
-
-// // const dbconnection = mysql2.createPool({
-// //   host: process.env.DB_HOST,
-// //   user: process.env.DB_USER,
-// //   password: process.env.DB_PASSWORD,
-// //   database: process.env.DB_NAME,
-// // });
-
-// // module.exports = dbconnection.promise();
+// module.exports = dbconnection.promise();
