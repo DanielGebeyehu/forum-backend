@@ -23,24 +23,22 @@ const query = async (text, params = []) => {
     return { rows: [{ now: new Date() }] };
   }
 
-  // Handle CREATE TABLE (skip - tables created in Supabase)
+  // Handle CREATE TABLE (Supabase tables should be created via dashboard/SQL editor)
   if (cleanText.match(/CREATE TABLE IF NOT EXISTS/i)) {
-    console.log("⚠️ Table creation skipped - tables exist in Supabase");
+    console.log("⚠️ Table creation skipped - create tables in Supabase dashboard");
     return { rows: [] };
   }
 
   // Handle SELECT queries
   const selectMatch = cleanText.match(
-    /SELECT (.+?) FROM (\w+)(?: WHERE (\w+) = \$1)?/i
+    /SELECT \* FROM (\w+)(?: WHERE (\w+) = \$1)?/i
   );
   if (selectMatch) {
-    const [, columns, table, whereColumn] = selectMatch;
-    let queryBuilder = supabase
-      .from(table)
-      .select(columns === "*" ? "*" : columns);
+    const [, table, column] = selectMatch;
+    let queryBuilder = supabase.from(table).select("*");
 
-    if (whereColumn && params[0] !== undefined) {
-      queryBuilder = queryBuilder.eq(whereColumn, params[0]);
+    if (column && params[0] !== undefined) {
+      queryBuilder = queryBuilder.eq(column, params[0]);
     }
 
     const { data, error } = await queryBuilder;
@@ -48,9 +46,9 @@ const query = async (text, params = []) => {
     return { rows: data || [] };
   }
 
-  // Handle INSERT queries (without RETURNING)
+  // Handle INSERT queries
   const insertMatch = cleanText.match(
-    /INSERT INTO (\w+)\s*\((.*?)\)\s*VALUES\s*\((\$\d+(?:,\s*\$\d+)*)\)/i
+    /INSERT INTO (\w+)\s*\((.*?)\)\s*VALUES\s*\((.*?)\)\s*RETURNING \*/i
   );
   if (insertMatch) {
     const [, table, columns] = insertMatch;
@@ -68,59 +66,33 @@ const query = async (text, params = []) => {
       .insert(insertData)
       .select();
 
-    if (error) {
-      console.error("Insert error:", error);
-      throw error;
-    }
+    if (error) throw error;
     return { rows: data || [] };
   }
 
-  // Handle UPDATE queries with SET and WHERE
+  // Handle UPDATE queries
   const updateMatch = cleanText.match(
-    /UPDATE (\w+) SET (.+?) WHERE (\w+) = \$(\d+)/i
+    /UPDATE (\w+) SET (.*?) WHERE (\w+) = \$(\d+)/i
   );
   if (updateMatch) {
-    const [, table, setClause, whereColumn, whereParamNum] = updateMatch;
+    const [, table, setClause, whereColumn, whereParamIndex] = updateMatch;
     const updates = {};
 
     // Parse SET clause
-    const setParts = setClause.split(",");
-
-    for (let part of setParts) {
-      const [colName, value] = part.split("=").map((s) => s.trim());
-
-      if (value.includes("$")) {
-        const paramNum = parseInt(value.match(/\$(\d+)/)[1]);
-        updates[colName] = params[paramNum - 1];
-      } else if (value === "NULL") {
-        updates[colName] = null;
-      } else if (value.includes("NOW()")) {
-        // Handle NOW() + INTERVAL
-        if (value.includes("INTERVAL")) {
-          const minutes = value.match(/INTERVAL '(\d+) minutes?'/i);
-          if (minutes) {
-            const futureDate = new Date();
-            futureDate.setMinutes(
-              futureDate.getMinutes() + parseInt(minutes[1])
-            );
-            updates[colName] = futureDate.toISOString();
-          }
-        } else {
-          updates[colName] = new Date().toISOString();
-        }
-      }
-    }
+    const setPairs = setClause.split(",");
+    let paramIndex = 0;
+    setPairs.forEach((pair) => {
+      const [col] = pair.trim().split("=");
+      updates[col.trim()] = params[paramIndex++];
+    });
 
     const { data, error } = await supabase
       .from(table)
       .update(updates)
-      .eq(whereColumn, params[parseInt(whereParamNum) - 1])
+      .eq(whereColumn, params[parseInt(whereParamIndex) - 1])
       .select();
 
-    if (error) {
-      console.error("Update error:", error);
-      throw error;
-    }
+    if (error) throw error;
     return { rows: data || [] };
   }
 
@@ -136,7 +108,7 @@ const query = async (text, params = []) => {
 
   console.error("❌ Unsupported query:", cleanText);
   throw new Error(
-    `Query pattern not supported: ${cleanText.substring(0, 100)}...`
+    `Query pattern not supported. Please use Supabase native methods.`
   );
 };
 
