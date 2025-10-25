@@ -25,7 +25,9 @@ const query = async (text, params = []) => {
 
   // Handle CREATE TABLE (Supabase tables should be created via dashboard/SQL editor)
   if (cleanText.match(/CREATE TABLE IF NOT EXISTS/i)) {
-    console.log("⚠️ Table creation skipped - create tables in Supabase dashboard");
+    console.log(
+      "⚠️ Table creation skipped - create tables in Supabase dashboard"
+    );
     return { rows: [] };
   }
 
@@ -47,8 +49,9 @@ const query = async (text, params = []) => {
   }
 
   // Handle INSERT queries
+  // Handle INSERT queries (with or without RETURNING)
   const insertMatch = cleanText.match(
-    /INSERT INTO (\w+)\s*\((.*?)\)\s*VALUES\s*\((.*?)\)\s*RETURNING \*/i
+    /INSERT INTO (\w+)\s*\((.*?)\)\s*VALUES\s*\((\$\d+(?:,\s*\$\d+)*)\)/i
   );
   if (insertMatch) {
     const [, table, columns] = insertMatch;
@@ -66,10 +69,12 @@ const query = async (text, params = []) => {
       .insert(insertData)
       .select();
 
-    if (error) throw error;
+    if (error) {
+      console.error("Insert error:", error);
+      throw error;
+    }
     return { rows: data || [] };
   }
-
   // Handle UPDATE queries
   const updateMatch = cleanText.match(
     /UPDATE (\w+) SET (.*?) WHERE (\w+) = \$(\d+)/i
