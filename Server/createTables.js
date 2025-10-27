@@ -18,7 +18,7 @@ async function createTables() {
         PRIMARY KEY (userid)
       )
     `);
-    console.log("✅ Users table created");
+    console.log(" Users table created");
 
     // Create questions table
     await connection.query(`
@@ -35,7 +35,7 @@ async function createTables() {
         FOREIGN KEY (userid) REFERENCES users(userid)
       )
     `);
-    console.log("✅ Questions table created");
+    console.log(" Questions table created");
 
     // Create answers table
     await connection.query(`
@@ -51,12 +51,12 @@ async function createTables() {
         FOREIGN KEY (userid) REFERENCES users(userid)
       )
     `);
-    console.log("✅ Answers table created");
+    console.log(" Answers table created");
 
-    console.log("🎉 All tables created successfully!");
+    console.log(" All tables created successfully!");
     process.exit(0);
   } catch (error) {
-    console.error("❌ Error creating tables:", error);
+    console.error(" Error creating tables:", error);
     process.exit(1);
   }
 }
