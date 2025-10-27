@@ -1,17 +1,15 @@
 {
   "name": "evangadi-forum",
   "version": "1.0.0",
-  "description": "Evangadi Forum - Full Stack Application",
+  "description": "Evangadi Forum - Backend API",
   "scripts": {
     "start": "cd Server && npm start",
-    "build": "cd Client && npm run build",
-    "dev": "concurrently \"cd Server && npm start\" \"cd Client && npm run dev\"",
-    "install-all": "cd Server && npm install && cd ../Client && npm install"
+    "install-deps": "cd Server && npm install"
   },
   "engines": {
     "node": ">=20.0.0"
   },
-  "keywords": ["forum", "react", "node", "express", "supabase"],
+  "keywords": ["forum", "node", "express", "supabase"],
   "author": "Daniel Gebeyehu",
   "license": "ISC"
 }
