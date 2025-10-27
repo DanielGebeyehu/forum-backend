@@ -2,9 +2,9 @@
   "name": "evangadi-forum",
   "version": "1.0.0",
   "description": "Evangadi Forum - Backend API",
-  "main": "app.js",
+  "main": "Server/app.js",
   "scripts": {
-    "start": "node app.js",
+    "start": "cd Server && npm install && npm start",
     "install-deps": "cd Server && npm install"
   },
   "engines": {
