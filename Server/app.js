@@ -95,6 +95,16 @@ const answerRoutes = require("./routes/answerRoute");
 // answer routes middleware
 app.use("/api/answer", answerRoutes);
 
+// Root endpoint for Railway
+app.get("/", (req, res) => {
+  res.status(200).json({ 
+    message: "Evangadi Forum API is running!",
+    status: "OK", 
+    timestamp: new Date().toISOString(),
+    service: "Evangadi Forum API"
+  });
+});
+
 // Health check endpoint
 app.get("/api/health", (req, res) => {
   res.status(200).json({ 
