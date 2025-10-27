@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Evangadi Forum - Backend API",
   "scripts": {
-    "start": "cd Server && npm start",
+    "start": "cd Server && npm install && npm start",
     "install-deps": "cd Server && npm install"
   },
   "engines": {
