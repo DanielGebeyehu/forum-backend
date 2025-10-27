@@ -1,16 +1,17 @@
 {
-  "name": "evangadi-forum",
+  "name": "evangadi-forum-backend",
   "version": "1.0.0",
-  "description": "Evangadi Forum - Backend API",
+  "description": "Evangadi Forum - Backend API Server",
   "main": "Server/app.js",
   "scripts": {
     "start": "cd Server && npm install && npm start",
+    "build": "cd Server && npm install",
     "install-deps": "cd Server && npm install"
   },
   "engines": {
     "node": ">=20.0.0"
   },
-  "keywords": ["forum", "node", "express", "supabase"],
+  "keywords": ["forum", "node", "express", "supabase", "railway"],
   "author": "Daniel Gebeyehu",
   "license": "ISC"
 }
