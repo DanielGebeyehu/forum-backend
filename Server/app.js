@@ -5,6 +5,8 @@ const sendEmail = require("./utils/emailSender");
 // Load environment variables
 require("dotenv").config();
 
+console.log("🚀 Starting Evangadi Forum Backend - Railway Deployment Fix v2...");
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 app.use(express.json());
