@@ -8,8 +8,8 @@
 import axios from "axios";
 
 const axiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "https://intuitive-courage-production.up.railway.app/api",
-  // withCredentials: true, // Temporarily disabled for CORS testing
+  baseURL: import.meta.env.VITE_API_URL || "https://forum-backend-second.up.railway.app/api",
+  withCredentials: true, // Re-enabled now that we have the correct backend
 });
 
 export default axiosInstance;
