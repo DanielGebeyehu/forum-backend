@@ -5,7 +5,7 @@ const sendEmail = require("./utils/emailSender");
 // Load environment variables
 require("dotenv").config();
 
-console.log("🚀 Starting Evangadi Forum Backend - Railway Deployment Fix v3 - FORCE REDEPLOY...");
+console.log("🚀 Starting Evangadi Forum Backend - Railway Deployment Fix v4 - UNIQUE ID: " + Date.now() + " - FORCE REDEPLOY...");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -100,12 +100,14 @@ app.use("/api/answer", answerRoutes);
 // Root endpoint for Railway
 app.get("/", (req, res) => {
   res.status(200).json({ 
-    message: "Evangadi Forum API is running! - Railway Fix v3",
+    message: "Evangadi Forum API is running! - Railway Fix v4",
     status: "OK", 
     timestamp: new Date().toISOString(),
     service: "Evangadi Forum API",
-    version: "v3.0.0",
-    deployment: "Railway Production"
+    version: "v4.0.0",
+    deployment: "Railway Production",
+    uniqueId: Date.now(),
+    project: "Evangadi Forum Backend"
   });
 });
 
