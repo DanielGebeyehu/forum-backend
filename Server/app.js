@@ -18,6 +18,7 @@ app.use(
       "http://localhost:5174", 
       "http://localhost:5175",
       "https://evangadi-forum2025ii.netlify.app",
+      "https://daaforrum.netlify.app", // New Netlify site
       process.env.FRONTEND_URL, // Add your Netlify URL here
     ],
     credentials: true,
